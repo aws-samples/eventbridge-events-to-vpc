@@ -1,0 +1,4 @@
+resources:
+- deployment.yaml
+- vendor/cert-manager.yaml
+- vendor/aws-alb-controller.yaml

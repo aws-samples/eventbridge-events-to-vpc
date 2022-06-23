@@ -1,0 +1,32 @@
+---
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: events
+  region: us-east-1
+
+nodeGroups:
+  - name: ng-1
+    instanceType: t3.medium
+    desiredCapacity: 1
+
+iam:
+  withOIDC: true
+  serviceAccounts:
+  - metadata:
+      name: vpc-example-app-service
+      namespace: vpc-example-app
+    attachPolicy:
+      Version: "2012-10-17"
+      Statement:
+      - Effect: Allow
+        Action:
+        - "secretsmanager:GetSecretValue"
+        Resource: 'arn:aws:secretsmanager:us-east-1:*:secret:EventsToVpcSecret*'
+
+  - metadata:
+      name: aws-load-balancer-controller
+      namespace: kube-system
+    wellKnownPolicies:
+      awsLoadBalancerController: true

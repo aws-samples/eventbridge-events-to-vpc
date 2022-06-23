@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: A Lambda function connected to a VPC that relays events from an EventBridge event bus to a given URL
+Parameters:
+  Url:
+    Description: Please enter the URL within the VPC for the Lambda function to send events to
+    Type: String
+  SecurityGroupId:
+    Description: Please enter the VPC security group id
+    Type: String
+  PrivateSubnetId1:
+    Description: Please enter the private subnet id in the first Availability Zone
+    Type: String
+  PrivateSubnetId2:
+    Description: Please enter the private subnet id in the second Availability Zone
+    Type: String
+  Secret:
+    Description: Please enter the secret to authenticate calls to the container application
+    Type: String
+
+Resources:
+  EventRelayLambda:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      FunctionName: EventRelayFunction
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      CodeUri: src/event_relay_function
+      Description: A function that receives events from an EventBridge rule and makes an HTTP call
+      Policies:
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBus
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref EventsToVpcSecret
+      Environment:
+        Variables:
+          EVENT_BUS_NAME: !Ref EventBus
+          SECRET_ID: !Ref EventsToVpcSecret
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref SecurityGroupId
+        SubnetIds:
+          - !Ref PrivateSubnetId1
+          - !Ref PrivateSubnetId2
+      EventInvokeConfig:
+        DestinationConfig:
+          OnFailure:
+            Type: SQS
+
+  EventsToVpcSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: EventsToVpcSecret
+      SecretString: !Ref Secret
+
+  EventBus:
+    Type: 'AWS::Events::EventBus'
+    Properties:
+      Name: event-relay-bus
+
+  EventBridgeRuleInbound:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      EventBusName: !Ref EventBus
+      EventPattern:
+        detail-type:
+          - inbound-event-sent
+      Targets:
+        - Arn: !GetAtt EventRelayLambda.Arn
+          Id: LambdaFunction
+          InputTransformer:
+            InputPathsMap:
+              "event-payload" : "$"
+            InputTemplate: !Sub
+              - |
+                {
+                  "url" : "${Url}",
+                  "method" : "POST",
+                  "headers": {
+                    "user-agent": "Amazon/EventBridge/CustomEvent"
+                  },
+                  "return-response-event": true,
+                  "event": <event-payload>
+                }
+              - Url: !Ref Url
+        - Arn: !GetAtt CloudWatchLogsGroup.Arn
+          Id: LogGroup
+    
+  EventBridgeRuleOutbound:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      EventBusName: !Ref EventBus
+      EventPattern:
+        detail-type:
+          - outbound-event-sent
+      Targets:
+        - Arn: !GetAtt CloudWatchLogsGroup.Arn
+          Id: LogGroup
+
+  EventsToInvokeLambdaPolicy: 
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EventRelayLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt EventBridgeRuleInbound.Arn
+
+  CloudWatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/events/event-bus-relay-logs
+
+  EventsToCloudWatchLogGroupPolicy:
+    Type: AWS::Logs::ResourcePolicy
+    Properties:
+      PolicyName: EventBridgeToCWLogsPolicy
+      PolicyDocument: !Sub 
+      - >
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "EventBridgetoCWLogsPolicy2",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "delivery.logs.amazonaws.com",
+                  "events.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+              "Resource": [
+                "${logArn}"
+              ],
+              "Condition": {
+                "ArnEquals": {"aws:SourceArn": [ "${inboundRuleArn}", "${outboundRuleArn}" ]}
+              }
+            }
+          ]
+        }
+      - { logArn: !GetAtt CloudWatchLogsGroup.Arn, inboundRuleArn: !GetAtt EventBridgeRuleInbound.Arn, outboundRuleArn: !GetAtt EventBridgeRuleOutbound.Arn}

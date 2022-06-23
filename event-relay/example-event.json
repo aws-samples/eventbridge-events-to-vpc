@@ -1,0 +1,7 @@
+[
+    {
+        "Source": "eventProducerApp",
+        "DetailType": "inbound-event-sent",
+        "Detail":"{ \"event-id\": \"123\",  \"return-response-event\": true }"
+    }
+]
