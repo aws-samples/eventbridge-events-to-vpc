@@ -25,4 +25,4 @@ soupsieve==2.2
 typing_extensions==4.0.1
 urllib3==1.26.5
 uuid==1.30
-Werkzeug==2.0.3
+Werkzeug==2.2.3
