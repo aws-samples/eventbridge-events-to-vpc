@@ -9,7 +9,7 @@ chardet==4.0.0
 click==7.1.2
 constructs==10.0.52
 coverage==5.5
-Flask==1.1.2
+Flask==2.3.2
 idna==2.10
 itsdangerous==1.1.0
 Jinja2==2.11.3
